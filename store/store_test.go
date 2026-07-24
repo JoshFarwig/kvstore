@@ -21,8 +21,8 @@ func TestSetAndGet(t *testing.T) {
 	if err != nil {
 		t.Errorf("no entry with key: %s found in store. %v", key, err)
 	}
-	if !bytes.Equal(v, value) {
-		t.Errorf("value set: %v does not equal value in store: %v", value, v)
+	if !bytes.Equal(v.Value, value) {
+		t.Errorf("value set: %v does not equal value in store: %v", value, v.Value)
 	}
 }
 
@@ -41,8 +41,8 @@ func TestSetOverrideAndForever(t *testing.T) {
 	if err != nil {
 		t.Errorf("no entry with key: %s found in store. %v", key, err)
 	}
-	if !bytes.Equal(v, newValue) {
-		t.Errorf("expected overridden value: %v, got: %v", newValue, v)
+	if !bytes.Equal(v.Value, newValue) {
+		t.Errorf("expected overridden value: %v, got: %v", newValue, v.Value)
 	}
 }
 

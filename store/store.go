@@ -1,57 +1,58 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 )
 
 type KVStore interface {
-	Get(key string) ([]byte, error)
+	Get(key string) (Item, error)
 	Set(key string, value []byte) error
 	Delete(key string) error
 }
 
 type Store struct {
 	mu   sync.RWMutex
-	data map[string]item
+	data map[string]Item
 }
 
-type item struct {
-	value     []byte
-	expiresAt time.Time
+type Item struct {
+	Value     json.RawMessage `json:"value"`
+	ExpiresAt time.Time       `json:"expires_at"`
 }
 
 func NewStore() *Store {
-	return &Store{data: make(map[string]item)}
+	return &Store{data: make(map[string]Item)}
 }
 
-func (s *Store) Get(key string) ([]byte, error) {
+func (s *Store) Get(key string) (Item, error) {
 	s.mu.RLock()
 	i, ok := s.data[key]
 	s.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("cannot get value for key: %s, does not exist in store", key)
+		return Item{}, fmt.Errorf("cannot get value for key: %s, does not exist in store", key)
 	}
 
-	if !i.expiresAt.IsZero() && time.Now().UTC().UTC().After(i.expiresAt) {
+	if !i.ExpiresAt.IsZero() && time.Now().UTC().After(i.ExpiresAt) {
 		s.mu.Lock()
 		delete(s.data, key)
 		s.mu.Unlock()
-		return nil, fmt.Errorf("entry: %v has expired, no longer exists", key)
+		return Item{}, fmt.Errorf("entry: %v has expired, no longer exists", key)
 	}
 
-	return i.value, nil
+	return i, nil
 }
 
 func (s *Store) Set(key string, value []byte, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data[key] = item{
-		value:     value,
-		expiresAt: expiresAt,
+	s.data[key] = Item{
+		Value:     value,
+		ExpiresAt: expiresAt,
 	}
 	return nil
 }
