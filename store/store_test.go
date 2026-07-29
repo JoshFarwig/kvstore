@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -9,95 +10,89 @@ import (
 	"time"
 )
 
+const forever = time.Duration(0)
+
+// set is a helper so tests read in terms of "expires in X" rather than
+// building absolute timestamps. A zero duration means no expiry.
+func set(s *Store, key, value string, in time.Duration) {
+	var expiresAt time.Time
+	if in != forever {
+		expiresAt = time.Now().UTC().Add(in)
+	}
+	s.Set(key, []byte(value), expiresAt)
+}
+
+func mustGet(t *testing.T, s *Store, key string) Item {
+	t.Helper()
+	i, err := s.Get(key)
+	if err != nil {
+		t.Fatalf("Get(%q): unexpected error: %v", key, err)
+	}
+	return i
+}
+
+func mustMiss(t *testing.T, s *Store, key string) {
+	t.Helper()
+	if i, err := s.Get(key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(%q) = (%v, %v), want ErrNotFound", key, i, err)
+	}
+}
+
 func TestSetAndGet(t *testing.T) {
-	key := "key1"
-	value := []byte("value1")
-	expiresAt := time.Now().Add(24 * time.Hour)
-
 	s := NewStore()
-	s.Set(key, value, expiresAt)
+	set(s, "key1", "value1", 24*time.Hour)
 
-	v, err := s.Get(key)
-	if err != nil {
-		t.Errorf("no entry with key: %s found in store. %v", key, err)
-	}
-	if !bytes.Equal(v.Value, value) {
-		t.Errorf("value set: %v does not equal value in store: %v", value, v.Value)
+	if got := mustGet(t, s, "key1"); !bytes.Equal(got.Value, []byte("value1")) {
+		t.Errorf("value = %s, want value1", got.Value)
 	}
 }
 
-func TestSetOverrideAndForever(t *testing.T) {
-	key := "key1"
-	value := []byte("value1")
-	newValue := []byte("value2")
-	expiresAt := time.Now().Add(24 * time.Hour)
-
+func TestSetOverwrites(t *testing.T) {
 	s := NewStore()
-	s.Set(key, value, expiresAt)
-	// overridden with no expiresAt, zero value for time, ttl = forever
-	s.Set(key, newValue, time.Time{})
+	set(s, "key1", "value1", 24*time.Hour)
+	set(s, "key1", "value2", forever) // also clears the expiry
 
-	v, err := s.Get(key)
-	if err != nil {
-		t.Errorf("no entry with key: %s found in store. %v", key, err)
+	got := mustGet(t, s, "key1")
+	if !bytes.Equal(got.Value, []byte("value2")) {
+		t.Errorf("value = %s, want value2", got.Value)
 	}
-	if !bytes.Equal(v.Value, newValue) {
-		t.Errorf("expected overridden value: %v, got: %v", newValue, v.Value)
+	if !got.ExpiresAt.IsZero() {
+		t.Errorf("ExpiresAt = %v, want zero after overwrite with no expiry", got.ExpiresAt)
 	}
 }
 
-func TestGetNotExists(t *testing.T) {
-	key := "nonexistentkey"
+// Every way a key can be absent must report the same sentinel, so callers can
+// map all of them to one 404 without inspecting messages.
+func TestGetMissingCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Store)
+	}{
+		{"never set", func(*Store) {}},
+		{"deleted", func(s *Store) { set(s, "k", "v", forever); s.Delete("k") }},
+		{"expired", func(s *Store) { set(s, "k", "v", -time.Hour) }},
+	}
 
-	s := NewStore()
-
-	_, err := s.Get(key)
-	if err == nil {
-		t.Errorf("no entry with key: %s found in store. %v", key, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStore()
+			tt.setup(s)
+			mustMiss(t, s, "k")
+		})
 	}
 }
 
-func TestGetExpires(t *testing.T) {
-	key := "key1"
-	value := []byte("value1")
-	expiresAt := time.Now().Add(-2 * time.Hour)
-
+// Deleting an absent key is a success that removed nothing, so repeated calls
+// must be indistinguishable from a single one.
+func TestDeleteIsIdempotent(t *testing.T) {
 	s := NewStore()
-	s.Set(key, value, expiresAt)
+	set(s, "k", "v", forever)
 
-	v, err := s.Get(key)
-	if err == nil {
-		t.Errorf("no entry with key: %s should be expired. value: %v", key, v)
-	}
-}
+	s.Delete("k")
+	s.Delete("k")
+	s.Delete("k")
 
-func TestDeleteThenGet(t *testing.T) {
-	key := "key1"
-	value := []byte("value1")
-
-	s := NewStore()
-	s.Set(key, value, time.Time{})
-
-	deleteErr := s.Delete(key)
-	if deleteErr != nil {
-		t.Errorf("unable to delete entry with key: %s. err: %v", key, deleteErr)
-	}
-
-	_, err := s.Get(key)
-	if err == nil {
-		t.Errorf("entry with key: %s found in store", key)
-	}
-}
-
-func TestDeleteNotExists(t *testing.T) {
-	key := "nonexistentkey"
-
-	s := NewStore()
-
-	err := s.Delete(key)
-	if err == nil {
-		t.Errorf("should not be able to delete a non-existent key: %s ", key)
-	}
+	mustMiss(t, s, "k")
 }
 
 func TestConcurrentConsumerProducer(t *testing.T) {
@@ -112,7 +107,7 @@ func TestConcurrentConsumerProducer(t *testing.T) {
 
 	// seed so consumers are not erring from unitialized entries
 	for k := range numKeys {
-		s.Set(fmt.Sprintf("key%d", k), []byte("seed"), time.Time{})
+		set(s, fmt.Sprintf("key%d", k), "seed", forever)
 	}
 
 	for p := range numProducers {

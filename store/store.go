@@ -2,16 +2,13 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 )
 
-type KVStore interface {
-	Get(key string) (Item, error)
-	Set(key string, value []byte) error
-	Delete(key string) error
-}
+var ErrNotFound = errors.New("key not found")
 
 type Store struct {
 	mu   sync.RWMutex
@@ -20,7 +17,7 @@ type Store struct {
 
 type Item struct {
 	Value     json.RawMessage `json:"value"`
-	ExpiresAt time.Time       `json:"expires_at"`
+	ExpiresAt time.Time       `json:"expiresAt"`
 }
 
 func NewStore() *Store {
@@ -33,20 +30,20 @@ func (s *Store) Get(key string) (Item, error) {
 	s.mu.RUnlock()
 
 	if !ok {
-		return Item{}, fmt.Errorf("cannot get value for key: %s, does not exist in store", key)
+		return Item{}, fmt.Errorf("get %q: %w", key, ErrNotFound)
 	}
 
 	if !i.ExpiresAt.IsZero() && time.Now().UTC().After(i.ExpiresAt) {
 		s.mu.Lock()
 		delete(s.data, key)
 		s.mu.Unlock()
-		return Item{}, fmt.Errorf("entry: %v has expired, no longer exists", key)
+		return Item{}, fmt.Errorf("get %q: expired: %w", key, ErrNotFound)
 	}
 
 	return i, nil
 }
 
-func (s *Store) Set(key string, value []byte, expiresAt time.Time) error {
+func (s *Store) Set(key string, value []byte, expiresAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -54,16 +51,10 @@ func (s *Store) Set(key string, value []byte, expiresAt time.Time) error {
 		Value:     value,
 		ExpiresAt: expiresAt,
 	}
-	return nil
 }
 
-func (s *Store) Delete(key string) error {
+func (s *Store) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if _, ok := s.data[key]; ok {
-		delete(s.data, key)
-		return nil
-	}
-	return fmt.Errorf("cannot delete a key: %s that does not exist", key)
+	delete(s.data, key)
 }

@@ -1,12 +1,21 @@
 package main
 
 import (
+	"fmt"
+	"log"
+	"log/slog"
+	"net/http"
+	"os"
+
 	"github.com/JoshFarwig/kvstore/server"
 	"github.com/JoshFarwig/kvstore/store"
 )
 
 func main() {
-	store := store.NewStore()
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	server.NewServer(store)
+	s := store.NewStore()
+
+	fmt.Println("Ἀεὶ ὁ θεὸς ὁ μέγας γεωμετρεῖ τὸ σύμπαν...")
+	log.Fatal(http.ListenAndServe(":8080", server.NewServer(s)))
 }
