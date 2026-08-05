@@ -63,8 +63,7 @@ func TestPutThenGet(t *testing.T) {
 	}
 }
 
-// A repeated PUT must be indistinguishable from a single one: that is the
-// property that lets proxies and Raft retries resend it safely.
+// A repeated PUT must be indistinguishable from a single one
 func TestPutIsIdempotent(t *testing.T) {
 	h, _ := newTestServer()
 	body := `{"value":"same"}`
@@ -145,8 +144,7 @@ func TestDelete(t *testing.T) {
 	assertStatus(t, do(t, h, http.MethodGet, "/kvstore/k1", ""), http.StatusNotFound)
 }
 
-// Deleting an absent key answers exactly as deleting a present one: the caller
-// asked for it to be gone, and it is gone.
+// Deleting an absent key answers exactly as deleting a present one
 func TestDeleteAbsentMatchesPresent(t *testing.T) {
 	h, _ := newTestServer()
 
@@ -157,6 +155,34 @@ func TestDeleteAbsentMatchesPresent(t *testing.T) {
 	assertStatus(t, present, http.StatusNoContent)
 	if absent.Code != present.Code {
 		t.Errorf("delete absent = %d, delete present = %d; want identical", absent.Code, present.Code)
+	}
+}
+
+func TestIsHealthy(t *testing.T) {
+	h, _ := newTestServer()
+
+	healthy := do(t, h, http.MethodGet, "/healthz", "")
+	assertStatus(t, healthy, http.StatusOK)
+}
+
+func TestGetVitals(t *testing.T) {
+	vitals, err := getVitals()
+	if err != nil {
+		t.Errorf("getVitals() error: %v", err)
+	}
+	if vitals.CPUPercent < 0 || vitals.MemPercent < 0 {
+		t.Errorf("got 0 or negative vitals: %+v", vitals)
+	}
+}
+
+func TestVitalsEndpoint(t *testing.T) {
+	h, _ := newTestServer()
+	rec := do(t, h, http.MethodGet, "/vitals", "")
+	assertStatus(t, rec, http.StatusOK)
+
+	var v NodeVitals
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatalf("response is not valid json: %v", err)
 	}
 }
 

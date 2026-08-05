@@ -5,8 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/JoshFarwig/kvstore/store"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 func NewServer(KVStore *store.Store) http.Handler {
@@ -19,6 +21,10 @@ func addRoutes(mux *http.ServeMux, KVStore *store.Store) {
 	mux.Handle("GET /kvstore/{key}", handleGetKV(KVStore))
 	mux.Handle("PUT /kvstore/{key}", handlePutKV(KVStore))
 	mux.Handle("DELETE /kvstore/{key}", handleDeleteKV(KVStore))
+	mux.Handle("GET /vitals", handleGetVitals())
+	mux.Handle("GET /metrics", handleGetMetrics())
+	mux.Handle("GET /readyz", handleIsReady())
+	mux.Handle("GET /healthz", handleIsHealthy())
 }
 
 func handleGetKV(KVStore *store.Store) http.Handler {
@@ -72,6 +78,48 @@ func handleDeleteKV(KVStore *store.Store) http.Handler {
 	)
 }
 
+func handleGetVitals() http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			vitals, err := getVitals()
+			if err != nil {
+				slog.Warn("could not retrieve cpu and mem percentages", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if err := writeJSON(w, http.StatusOK, vitals); err != nil {
+				slog.Warn("could not encode response body", "item", vitals, "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		},
+	)
+}
+
+func handleGetMetrics() http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			// TODO: use k6 / prometheusus metrics
+		},
+	)
+}
+
+func handleIsHealthy() http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	)
+}
+
+func handleIsReady() http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			// TODO: verify node state is not shutting down and leader is elected, impl 4 raft
+		},
+	)
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -80,4 +128,25 @@ func writeJSON(w http.ResponseWriter, status int, v any) error {
 
 func readJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
+}
+
+type NodeVitals struct {
+	CPUPercent float64 `json:"cpuPercent"`
+	MemPercent float32 `json:"memPercent"`
+}
+
+func getVitals() (NodeVitals, error) {
+	p, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		return NodeVitals{}, err
+	}
+	cpu, err := p.CPUPercent()
+	if err != nil {
+		return NodeVitals{}, err
+	}
+	mem, err := p.MemoryPercent()
+	if err != nil {
+		return NodeVitals{}, err
+	}
+	return NodeVitals{CPUPercent: cpu, MemPercent: mem}, nil
 }

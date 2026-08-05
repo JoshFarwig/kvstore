@@ -8,7 +8,11 @@ export const options = {
   scenarios: {
     average_load: {
       executor: "ramping-vus",
-      stages: [{ duration: "10s" }],
+      stages: [
+        { duration: "10s", target: 20 },
+        { duration: "20s", target: 20 },
+        { duration: "5s", target: 0 },
+      ],
     },
     high_load: {},
   },
