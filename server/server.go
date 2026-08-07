@@ -5,10 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 
 	"github.com/JoshFarwig/kvstore/store"
-	"github.com/shirou/gopsutil/v4/process"
 )
 
 func NewServer(KVStore *store.Store) http.Handler {
@@ -83,7 +81,7 @@ func handleGetVitals() http.Handler {
 		func(w http.ResponseWriter, r *http.Request) {
 			vitals, err := getVitals()
 			if err != nil {
-				slog.Warn("could not retrieve cpu and mem percentages", "err", err)
+				slog.Warn("could not retrieve node vitals", "err", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -128,25 +126,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) error {
 
 func readJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
-}
-
-type NodeVitals struct {
-	CPUPercent float64 `json:"cpuPercent"`
-	MemPercent float32 `json:"memPercent"`
-}
-
-func getVitals() (NodeVitals, error) {
-	p, err := process.NewProcess(int32(os.Getpid()))
-	if err != nil {
-		return NodeVitals{}, err
-	}
-	cpu, err := p.CPUPercent()
-	if err != nil {
-		return NodeVitals{}, err
-	}
-	mem, err := p.MemoryPercent()
-	if err != nil {
-		return NodeVitals{}, err
-	}
-	return NodeVitals{CPUPercent: cpu, MemPercent: mem}, nil
 }

@@ -19,7 +19,7 @@ export const options = {
 };
 
 export default function () {
-  let res = http.get("https://quickpizza.grafana.com");
+  let res = http.get("http://localhost:8080/healthz");
   check(res, { "status is 200": (res) => res.status === 200 });
   sleep(1);
 }

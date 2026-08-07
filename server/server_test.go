@@ -17,7 +17,7 @@ func newTestServer() (http.Handler, *store.Store) {
 }
 
 // Drives the mux in-process. No port is bound, so these run in parallel with
-// anything else and cannot collide with a real server on :8080.
+// anything else and cannot collide with a real server
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
@@ -92,7 +92,7 @@ func TestPutOverwrites(t *testing.T) {
 }
 
 // time.Time rejects anything that is not RFC 3339 during decoding, so bad
-// timestamps are caught by readJSON without any hand-written validation.
+// timestamps are caught by readJSON
 func TestPutRejectsBadBodies(t *testing.T) {
 	tests := []struct {
 		name string
@@ -163,16 +163,6 @@ func TestIsHealthy(t *testing.T) {
 
 	healthy := do(t, h, http.MethodGet, "/healthz", "")
 	assertStatus(t, healthy, http.StatusOK)
-}
-
-func TestGetVitals(t *testing.T) {
-	vitals, err := getVitals()
-	if err != nil {
-		t.Errorf("getVitals() error: %v", err)
-	}
-	if vitals.CPUPercent < 0 || vitals.MemPercent < 0 {
-		t.Errorf("got 0 or negative vitals: %+v", vitals)
-	}
 }
 
 func TestVitalsEndpoint(t *testing.T) {
