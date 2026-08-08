@@ -1,6 +1,8 @@
 import http from "k6/http";
 import { sleep, check } from "k6";
 
+// TODO: rewrite hit kvstore, and or vitals with random PUT and GET
+
 export const options = {
   thresholds: {
     http_req_duration: ["p(99)<1000"], // 99% of reqs should be below 1s
@@ -14,7 +16,6 @@ export const options = {
         { duration: "5s", target: 0 },
       ],
     },
-    high_load: {},
   },
 };
 

@@ -176,6 +176,43 @@ func TestVitalsEndpoint(t *testing.T) {
 	}
 }
 
+func TestThresholdEndpoints(t *testing.T) {
+	h, _ := newTestServer()
+
+	assertStatus(t, do(t, h, http.MethodGet, "/threshold/n1", ""), http.StatusNotFound)
+	assertStatus(t, do(t, h, http.MethodPut, "/threshold/n1", `{"CPUPercentCap":80,"memPercentCap":80}`), http.StatusNoContent)
+	assertStatus(t, do(t, h, http.MethodGet, "/threshold/n1", ""), http.StatusOK)
+	assertStatus(t, do(t, h, http.MethodDelete, "/threshold/n1", ""), http.StatusNoContent)
+	assertStatus(t, do(t, h, http.MethodGet, "/threshold/n1", ""), http.StatusNotFound)
+}
+
+func TestPutThresholdRejectsInvalid(t *testing.T) {
+	h, _ := newTestServer()
+	assertStatus(t, do(t, h, http.MethodPut, "/threshold/n1", `{"CPUPercentCap":0,"memPercentCap":80}`), http.StatusBadRequest)
+}
+
+func TestThrottledEndpoint(t *testing.T) {
+	h, s := newTestServer()
+
+	rec := do(t, h, http.MethodGet, "/throttled", "")
+	assertStatus(t, rec, http.StatusOK)
+	if rec.Body.String() != "{}\n" {
+		t.Errorf("empty throttled = %q, want {}", rec.Body.String())
+	}
+
+	SetThrottleThreshold(s, "n1", ThrottleThreshold{CPUPctCap: 80, MemPctCap: 80})
+	ToggleThrottle(s, "n1", NodeVitals{CPUPercent: 95})
+
+	rec = do(t, h, http.MethodGet, "/throttled", "")
+	var tn ThrottledNodes
+	if err := json.Unmarshal(rec.Body.Bytes(), &tn); err != nil {
+		t.Fatalf("response is not valid json: %v", err)
+	}
+	if _, ok := tn["n1"]; !ok {
+		t.Errorf("throttled nodes = %v, want n1 present", tn)
+	}
+}
+
 func TestUnsupportedMethod(t *testing.T) {
 	h, _ := newTestServer()
 	assertStatus(t, do(t, h, http.MethodPatch, "/kvstore/k1", `{}`), http.StatusMethodNotAllowed)

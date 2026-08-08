@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JoshFarwig/kvstore/store"
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
@@ -48,12 +49,12 @@ func TestMemBytesLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := memLimitBytesFrom(tt.path)
+			got, _, err := availableMemBytesFrom(tt.path)
 			if err != nil {
-				t.Fatalf("memLimitBytesFrom() error: %v", err)
+				t.Fatalf("availableMemBytesFrom() error: %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("memLimitBytesFrom() = %d, want %d", got, tt.want)
+				t.Fatalf("availableMemBytesFrom() = %d, want %d", got, tt.want)
 			}
 		})
 	}
@@ -79,9 +80,9 @@ func TestCPUQuotaCores(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cpuQuotaCoresFrom(tt.path)
+			got, _ := availableCoresFrom(tt.path)
 			if got != tt.want {
-				t.Fatalf("cpuQuotaCoreFrom() = %f, want %f", got, tt.want)
+				t.Fatalf("availableCoresFrom() = %f, want %f", got, tt.want)
 			}
 		})
 	}
@@ -91,7 +92,7 @@ func TestSampleCPUPerecent(t *testing.T) {
 	var s cpuSampler
 	const startingCPUTime = 1.0
 
-	pct, at := s.sample(startingCPUTime)
+	pct, at, _, _ := s.sample(startingCPUTime)
 	if pct != 0 {
 		t.Fatalf("first sample() pct = %f, want 0", pct)
 	}
@@ -103,8 +104,9 @@ func TestSampleCPUPerecent(t *testing.T) {
 	// leaves only function-call overhead as jitter.
 	s.at = s.at.Add(-minCPUsampleWindow)
 	const totalDelta = 0.7
-	wantPct := 100 * totalDelta / time.Since(s.at).Seconds() / cpuQuotaCores()
-	pct, _ = s.sample(startingCPUTime + totalDelta)
+	availCores, _ := availableCores()
+	wantPct := 100 * totalDelta / time.Since(s.at).Seconds() / availCores
+	pct, _, _, _ = s.sample(startingCPUTime + totalDelta)
 
 	if pct <= 0 {
 		t.Fatalf("second sample() = %f, want > 0", pct)
@@ -114,18 +116,84 @@ func TestSampleCPUPerecent(t *testing.T) {
 	}
 }
 
-func TestGetVitals(t *testing.T) {
-	v, err := getVitals()
+func TestThrottleThresholdValidate(t *testing.T) {
+	tests := []struct {
+		name string
+		tt   ThrottleThreshold
+		ok   bool
+	}{
+		{"valid", ThrottleThreshold{80, 80}, true},
+		{"cpu zero", ThrottleThreshold{0, 80}, false},
+		{"cpu over 100", ThrottleThreshold{101, 80}, false},
+		{"mem zero", ThrottleThreshold{80, 0}, false},
+		{"mem over 100", ThrottleThreshold{80, 101}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.tt.Validate(); (err == nil) != tt.ok {
+				t.Fatalf("Validate() err = %v, want ok = %v", err, tt.ok)
+			}
+		})
+	}
+}
+
+func TestSetGetThrottleThreshold(t *testing.T) {
+	s := store.NewStore()
+
+	if got := GetThrottleThreshold(s, "n1"); got != (ThrottleThreshold{}) {
+		t.Fatalf("GetThrottleThreshold() unset = %v, want zero value", got)
+	}
+
+	want := ThrottleThreshold{CPUPctCap: 75, MemPctCap: 90}
+	if err := SetThrottleThreshold(s, "n1", want); err != nil {
+		t.Fatalf("SetThrottleThreshold() error: %v", err)
+	}
+	if got := GetThrottleThreshold(s, "n1"); got != want {
+		t.Fatalf("GetThrottleThreshold() = %v, want %v", got, want)
+	}
+}
+
+func TestSetThrottleThresholdRejectsInvalid(t *testing.T) {
+	s := store.NewStore()
+	if err := SetThrottleThreshold(s, "n1", ThrottleThreshold{}); err == nil {
+		t.Fatal("SetThrottleThreshold() zero value, want error")
+	}
+}
+
+func TestToggleThrottle(t *testing.T) {
+	s := store.NewStore()
+
+	ToggleThrottle(s, "n1", NodeVitals{CPUPercent: 95})
+	if _, ok := GetThrottledNodes(s)["n1"]; ok {
+		t.Fatal("throttled with no threshold configured")
+	}
+
+	SetThrottleThreshold(s, "n1", ThrottleThreshold{CPUPctCap: 80, MemPctCap: 80})
+
+	ToggleThrottle(s, "n1", NodeVitals{CPUPercent: 95})
+	if _, ok := GetThrottledNodes(s)["n1"]; !ok {
+		t.Fatal("over cap not throttled")
+	}
+
+	ToggleThrottle(s, "n1", NodeVitals{CPUPercent: 10})
+	if _, ok := GetThrottledNodes(s)["n1"]; ok {
+		t.Fatal("under cap still throttled")
+	}
+}
+
+func TestSampleVitals(t *testing.T) {
+	v, err := SampleVitals()
 	if err != nil {
-		t.Fatalf("getVitals() error: %v", err)
+		t.Fatalf("SampleVitals() error: %v", err)
 	}
 	if v.CPUPercent < 0 {
-		t.Errorf("getVitals() cpu = %f, want >= 0", v.CPUPercent)
+		t.Errorf("SampleVitals() cpu = %f, want >= 0", v.CPUPercent)
 	}
 	if v.MemPercent <= 0 || v.MemPercent > 100 {
-		t.Errorf("getVitals() mem = %f, want 0 < mem <= 100", v.MemPercent)
+		t.Errorf("SampleVitals() mem = %f, want 0 < mem <= 100", v.MemPercent)
 	}
 	if v.ReadAt.IsZero() {
-		t.Errorf("getVitals() readAt is zero")
+		t.Errorf("SampleVitals() readAt is zero")
 	}
 }
