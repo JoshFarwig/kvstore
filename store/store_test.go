@@ -95,6 +95,28 @@ func TestDeleteIsIdempotent(t *testing.T) {
 	mustMiss(t, s, "k")
 }
 
+func TestReapExpiredRemovesExpired(t *testing.T) {
+	s := NewStore()
+	set(s, "expired", "v", -time.Hour)
+	set(s, "fresh", "v", time.Hour)
+	set(s, "noExpiry", "v", forever)
+
+	s.ReapExpired()
+
+	mustMiss(t, s, "expired")
+	mustGet(t, s, "fresh")
+	mustGet(t, s, "noExpiry")
+}
+
+func TestReapExpiredNoop(t *testing.T) {
+	s := NewStore()
+	set(s, "fresh", "v", time.Hour)
+
+	s.ReapExpired()
+
+	mustGet(t, s, "fresh")
+}
+
 func TestConcurrentConsumerProducer(t *testing.T) {
 	numOps := 100
 	numKeys := 10

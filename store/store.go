@@ -58,3 +58,14 @@ func (s *Store) Delete(key string) {
 	defer s.mu.Unlock()
 	delete(s.data, key)
 }
+
+func (s *Store) ReapExpired() {
+	now := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.data {
+		if !v.ExpiresAt.IsZero() && now.After(v.ExpiresAt) {
+			delete(s.data, k)
+		}
+	}
+}

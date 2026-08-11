@@ -165,7 +165,7 @@ func StartHeartbeat(ctx context.Context, s *store.Store, nodeID string, interval
 		for {
 			select {
 			case <-ctx.Done():
-				slog.Info("heartbeat shutting down", "nodeID", nodeID, "shutdownAt", time.Now().UTC())
+				slog.Debug("heartbeat shutting down", "nodeID", nodeID, "shutdownAt", time.Now().UTC())
 				return
 			case <-ticker.C:
 				v, err := SampleVitals()
@@ -177,6 +177,22 @@ func StartHeartbeat(ctx context.Context, s *store.Store, nodeID string, interval
 				body, _ := json.Marshal(v)
 				s.Set(vitalsKey+nodeID, body, time.Now().UTC().Add(heartbeatTTLMultiplier*interval))
 				ToggleThrottle(s, nodeID, v)
+			}
+		}
+	}()
+}
+
+func StartReaper(ctx context.Context, s *store.Store, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				slog.Info("reaper shutting down", "shutdownAt", time.Now().UTC())
+				return
+			case <-ticker.C:
+				s.ReapExpired()
 			}
 		}
 	}()

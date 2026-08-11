@@ -10,19 +10,18 @@ import (
 	"github.com/JoshFarwig/kvstore/store"
 )
 
-func NewServer(KVStore *store.Store) http.Handler {
+func NewServer(KVStore *store.Store, nodeID string) http.Handler {
 	mux := http.NewServeMux()
-	addRoutes(mux, KVStore)
+	addRoutes(mux, KVStore, nodeID)
 	return mux
 }
 
-func addRoutes(mux *http.ServeMux, KVStore *store.Store) {
-	mux.Handle("GET /kvstore/{key}", denyReservedPrefix(handleGetKV(KVStore)))
-	mux.Handle("PUT /kvstore/{key}", handlePutKV(KVStore))
-	mux.Handle("DELETE /kvstore/{key}", denyReservedPrefix(handleDeleteKV(KVStore)))
+func addRoutes(mux *http.ServeMux, KVStore *store.Store, nodeID string) {
+	mux.Handle("GET /kvstore/{key}", denyKVStoreOnThrottle(denyReservedPrefix(handleGetKV(KVStore)), KVStore, nodeID))
+	mux.Handle("PUT /kvstore/{key}", denyKVStoreOnThrottle(denyReservedPrefix(handlePutKV(KVStore)), KVStore, nodeID))
+	mux.Handle("DELETE /kvstore/{key}", denyKVStoreOnThrottle(denyReservedPrefix(handleDeleteKV(KVStore)), KVStore, nodeID))
 	mux.Handle("GET /vitals", handleGetLocalVitals())
 	mux.Handle("GET /vitals/{nodeID}", handleGetVitals(KVStore))
-	// NOTE: /throttled is intended to be global by nature and utilized by leader
 	mux.Handle("GET /throttled", handleGetThrottledNodes(KVStore))
 	mux.Handle("GET /threshold/{nodeID}", handleGetThreshold(KVStore))
 	mux.Handle("PUT /threshold/{nodeID}", handlePutThreshold(KVStore))
@@ -243,4 +242,18 @@ func denyReservedPrefix(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+func denyKVStoreOnThrottle(next http.Handler, s *store.Store, nodeID string) http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			tn := GetThrottledNodes(s)
+			if i, ok := tn[nodeID]; ok {
+				slog.Warn("unable to accept request, node throttled", "method", r.Method, "nodeID", nodeID, "throttledAt", i)
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			next.ServeHTTP(w, r)
+		},
+	)
 }

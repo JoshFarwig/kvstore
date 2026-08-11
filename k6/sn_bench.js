@@ -1,7 +1,9 @@
 import http from "k6/http";
-import { sleep, check } from "k6";
+import { check } from "k6";
 
-// TODO: rewrite hit kvstore, and or vitals with random PUT and GET
+const NODE_ID = __ENV.NODE_ID || "sn-bench";
+const BASE = "http://localhost:8080";
+const KEYS = ["k1", "k2", "k3"];
 
 export const options = {
   thresholds: {
@@ -20,7 +22,37 @@ export const options = {
 };
 
 export default function () {
-  let res = http.get("http://localhost:8080/healthz");
-  check(res, { "status is 200": (res) => res.status === 200 });
-  sleep(1);
+  const r = Math.random();
+  if (r < 0.7) {
+    check(http.get(`${BASE}/vitals/${NODE_ID}`), {
+      "GET /vitals/{node-id}: 200/404": (res) =>
+        res.status === 200 || res.status === 404,
+    });
+  } else if (r < 0.95) {
+    check(http.get(`${BASE}/throttled`), {
+      "GET /throttled: 200": (res) => res.status === 200,
+    });
+  } else {
+    const key = KEYS[Math.floor(Math.random() * KEYS.length)];
+    if (Math.random() < 0.5) {
+      check(http.get(`${BASE}/kvstore/${key}`), {
+        "GET /kvstore/{key}: 200/404": (res) =>
+          res.status === 200 || res.status === 404,
+        "GET /kvstore/{key}: valid json when found": (res) => {
+          if (res.status !== 200) return true;
+          try {
+            JSON.parse(res.body);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
+    } else {
+      const body = JSON.stringify({ value: "v" });
+      check(http.put(`${BASE}/kvstore/${key}`, body), {
+        "PUT /kvstore/{key}: 204": (res) => res.status === 204,
+      });
+    }
+  }
 }

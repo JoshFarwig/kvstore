@@ -13,7 +13,7 @@ import (
 
 func newTestServer() (http.Handler, *store.Store) {
 	s := store.NewStore()
-	return NewServer(s), s
+	return NewServer(s, "n1"), s
 }
 
 // Drives the mux in-process. No port is bound, so these run in parallel with

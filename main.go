@@ -35,8 +35,9 @@ func main() {
 	}
 
 	server.StartHeartbeat(ctx, s, cfg.NodeID, 3*time.Second)
+	server.StartReaper(ctx, s, 15*time.Second)
 
-	srv := newHTTPServer(cfg, server.NewServer(s))
+	srv := newHTTPServer(cfg, server.NewServer(s, cfg.NodeID))
 
 	fmt.Println("Ἀεὶ ὁ θεὸς ὁ μέγας γεωμετρεῖ τὸ σύμπαν...")
 	if err := runServer(ctx, srv); err != nil {
