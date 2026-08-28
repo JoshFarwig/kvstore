@@ -154,12 +154,25 @@ func availableCoresFrom(path string) (float64, bool) {
 }
 
 const (
-	heartbeatTTLMultiplier = 2
+	heartbeatTTLMultiplier = 3
 	vitalsKey              = "kvs:vitals:"
 )
 
 func StartHeartbeat(ctx context.Context, s *store.Store, nodeID string, interval time.Duration) {
+	beat := func() {
+		v, err := SampleVitals()
+		if err != nil {
+			slog.Warn("hearbeat: SampleVitals() failed", "nodeID", nodeID, "err", err)
+			return
+		}
+
+		body, _ := json.Marshal(v)
+		s.Set(vitalsKey+nodeID, body, time.Now().UTC().Add(heartbeatTTLMultiplier*interval))
+		ToggleThrottle(s, nodeID, v)
+	}
+
 	go func() {
+		beat() // ticker's first tick fires after interval, not at start; write once now so /vitals isn't 404 before then.
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -168,15 +181,7 @@ func StartHeartbeat(ctx context.Context, s *store.Store, nodeID string, interval
 				slog.Debug("heartbeat shutting down", "nodeID", nodeID, "shutdownAt", time.Now().UTC())
 				return
 			case <-ticker.C:
-				v, err := SampleVitals()
-				if err != nil {
-					slog.Warn("hearbeat: SampleVitals() failed", "nodeID", nodeID, "err", err)
-					continue
-				}
-
-				body, _ := json.Marshal(v)
-				s.Set(vitalsKey+nodeID, body, time.Now().UTC().Add(heartbeatTTLMultiplier*interval))
-				ToggleThrottle(s, nodeID, v)
+				beat()
 			}
 		}
 	}()

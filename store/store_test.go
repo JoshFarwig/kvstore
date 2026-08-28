@@ -160,3 +160,40 @@ func TestConcurrentConsumerProducer(t *testing.T) {
 	wg.Wait()
 	t.Logf("deleteInterval=%d producers=%d consumers=%d hits=%d misses=%d", deleteInterval, numProducers, numConsumers, hits.Load(), misses.Load())
 }
+
+// PERFORMANCE:
+// ➜ go test -bench=. -benchtime=2s -benchmem -cpu=1,4,8
+// goos: darwin
+// goarch: arm64
+// pkg: github.com/JoshFarwig/kvstore/store
+// cpu: Apple M3 Pro
+// BenchmarkGet            178122310               13.14 ns/op            0 B/op          0 allocs/op
+// BenchmarkGet-4          41581090                57.76 ns/op            0 B/op          0 allocs/op
+// BenchmarkGet-8          20852905                99.70 ns/op            0 B/op          0 allocs/op
+// BenchmarkSet            84522294                30.10 ns/op            3 B/op          1 allocs/op
+// BenchmarkSet-4          16256091               144.8 ns/op             3 B/op          1 allocs/op
+// BenchmarkSet-8          16592126               145.3 ns/op             3 B/op          1 allocs/op
+// PASS
+// ok      github.com/JoshFarwig/kvstore/store     16.387s
+
+// roughly 2x faster for RLOCK vs LOCK, till ~8+ concurrent goroutines
+func BenchmarkGet(b *testing.B) {
+	s := NewStore()
+	s.Set("k", []byte(`"v"`), time.Time{})
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			s.Get("k")
+		}
+	})
+}
+
+func BenchmarkSet(b *testing.B) {
+	s := NewStore()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			s.Set("k", []byte(`"v"`), time.Time{})
+		}
+	})
+}
