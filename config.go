@@ -7,13 +7,15 @@ import (
 )
 
 type Config struct {
-	NodeID          string
+	ID              string
+	Address         string
 	CPUThresholdPct float64
 	MemThresholdPct float64
 	Host            string
 	Port            string
 }
 
+// TODO: revise with raft Config in mind
 func loadConfig(getenv func(string) string) (Config, error) {
 	nodeID := getenv("NODE_ID")
 	if nodeID == "" {
@@ -35,7 +37,7 @@ func loadConfig(getenv func(string) string) (Config, error) {
 		port = "8080"
 	}
 
-	return Config{nodeID, cpu, mem, host, port}, nil
+	return Config{nodeID, "localhost", cpu, mem, host, port}, nil
 }
 
 func parseOptionalPct(getenv func(string) string, env string) (float64, error) {

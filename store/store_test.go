@@ -2,8 +2,10 @@ package store
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -196,4 +198,47 @@ func BenchmarkSet(b *testing.B) {
 			s.Set("k", []byte(`"v"`), time.Time{})
 		}
 	})
+}
+
+func TestSnapshot(t *testing.T) {
+	// make sure snapshot is an independent copy, not a view into the live data
+	s := NewStore()
+	s.Set("t1", json.RawMessage(`"test1"`), time.Time{})
+
+	s1 := s.Snapshot()
+
+	s.Set("t1", json.RawMessage(`"mutated"`), time.Time{})
+
+	if reflect.DeepEqual(s1, s.data) {
+		t.Errorf("unexpected equality, snapshot=%+v should not equal to data=%+v ", s.data, s1)
+	}
+	if got := s1["t1"].Value; !bytes.Equal(got, []byte(`"test1"`)) {
+		t.Errorf("snapshot value = %s, want test1 unaffected by later mutation", got)
+	}
+}
+
+func TestRestore(t *testing.T) {
+	// make sure restore properly swaps data and returns empty struct on nil
+	s := NewStore()
+	s.Set("t1", json.RawMessage(`"test1"`), time.Time{})
+
+	s1 := s.Snapshot()
+
+	s.Set("t1", json.RawMessage(`"mutated"`), time.Time{})
+
+	if reflect.DeepEqual(s1, s.data) {
+		t.Errorf("unexpected equality, snapshot=%+v should not be equal to data=%+v ", s.data, s1)
+	}
+
+	s.Restore(s1)
+
+	if !reflect.DeepEqual(s1, s.data) {
+		t.Errorf("expected equality, snapshot=%+v should be equal to data=%+v ", s.data, s1)
+	}
+
+	s.Restore(nil)
+
+	if s.data == nil || len(s.data) != 0 {
+		t.Errorf("data = %+v, want empty non-nil map", s.data)
+	}
 }

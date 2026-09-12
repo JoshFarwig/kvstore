@@ -34,10 +34,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	server.StartHeartbeat(ctx, s, cfg.NodeID, 3*time.Second)
+	server.StartHeartbeat(ctx, s, cfg.ID, 3*time.Second)
 	server.StartReaper(ctx, s, 15*time.Second)
 
-	srv := newHTTPServer(cfg, server.NewServer(s, cfg.NodeID))
+	srv := newHTTPServer(cfg, server.NewServer(s, cfg.ID))
 
 	fmt.Println("Ἀεὶ ὁ θεὸς ὁ μέγας γεωμετρεῖ τὸ σύμπαν...")
 	if err := runServer(ctx, srv); err != nil {
@@ -50,7 +50,7 @@ func seedThreshold(s *store.Store, cfg Config) error {
 	if cfg.CPUThresholdPct == -1 || cfg.MemThresholdPct == -1 {
 		return nil
 	}
-	return server.SetThrottleThreshold(s, cfg.NodeID, server.ThrottleThreshold{
+	return server.SetThrottleThreshold(s, cfg.ID, server.ThrottleThreshold{
 		CPUPctCap: cfg.CPUThresholdPct,
 		MemPctCap: cfg.MemThresholdPct,
 	})
